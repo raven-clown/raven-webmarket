@@ -189,7 +189,30 @@ func (a *API) AdminSaveMonthlyReset(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) AdminPermissionsList(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"all": rbac.AllPermissions,
+		"all":     rbac.AllPermissions,
 		"default": rbac.DefaultAdminPermissions,
 	})
+}
+
+func (a *API) AdminGetPaymentSettings(w http.ResponseWriter, r *http.Request) {
+	cfg, err := a.admin.GetPaymentSettings(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, cfg)
+}
+
+func (a *API) AdminSavePaymentSettings(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetAdmin(r)
+	var cfg admin.PaymentSettings
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := a.admin.SavePaymentSettings(r.Context(), *actor, a.clientIP(r), cfg); err != nil {
+		response.Error(w, http.StatusForbidden, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }

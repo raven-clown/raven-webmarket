@@ -40,7 +40,42 @@ type WebhookPayload struct {
 	SlipBase64    string  `json:"slip_base64"`
 }
 
+func (s *Service) minTopupAmount(ctx context.Context) float64 {
+	var raw []byte
+	err := s.db.QueryRowContext(ctx, `SELECT setting_value FROM system_settings WHERE setting_key = 'payment_settings'`).Scan(&raw)
+	if err == nil {
+		var ps struct {
+			MinTopupAmount float64 `json:"min_topup_amount"`
+		}
+		if json.Unmarshal(raw, &ps) == nil && ps.MinTopupAmount > 0 {
+			return ps.MinTopupAmount
+		}
+	}
+	if s.cfg.MinTopupAmount > 0 {
+		return s.cfg.MinTopupAmount
+	}
+	return 50
+}
+
+func (s *Service) ValidateTopupAmount(ctx context.Context, amount float64) error {
+	min := s.minTopupAmount(ctx)
+	if amount < min {
+		return fmt.Errorf("minimum top-up amount is %.2f baht", min)
+	}
+	return nil
+}
+
+func (s *Service) PublicSettings(ctx context.Context) map[string]interface{} {
+	return map[string]interface{}{
+		"min_topup_amount":      s.minTopupAmount(ctx),
+		"redeem_points_per_baht": s.cfg.RedeemPointsPerBaht,
+	}
+}
+
 func (s *Service) ProcessWebhook(ctx context.Context, payload WebhookPayload) error {
+	if err := s.ValidateTopupAmount(ctx, payload.Amount); err != nil {
+		return err
+	}
 	lockKey := "payment:" + payload.Ref
 	return lock.WithLock(ctx, s.redis.Session, lockKey, 60*time.Second, func() error {
 		var existing int
@@ -100,6 +135,9 @@ func (s *Service) ProcessWebhook(ctx context.Context, payload WebhookPayload) er
 }
 
 func (s *Service) CreatePending(ctx context.Context, discordID, identifier, method string, amount float64) (string, error) {
+	if err := s.ValidateTopupAmount(ctx, amount); err != nil {
+		return "", err
+	}
 	ref := "TX-" + uuid.New().String()[:12]
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO topup_transactions (tx_ref, discord_id, identifier, amount, payment_method, status)

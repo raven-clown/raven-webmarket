@@ -6,18 +6,35 @@ For development-only quick start, see [README.md](./README.md).
 
 ---
 
+## Documentation Index
+
+| Document | Purpose |
+|----------|---------|
+| [README.md](./README.md) | Architecture, cart, top-up, admin CMS, API summary, hardware profile |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | This file — production deployment & operations |
+| [.env.example](./.env.example) | Full environment variable reference |
+| `database/migrations/001`–`006` | Schema migrations (run via `scripts/migrate.*`) |
+
+Local Thai copies (`README.th.md`, `DEPLOYMENT.th.md`) and `WEBSITE.MD` / `PROGRESS.md` are gitignored owner notes — not in the public repo.
+
+---
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [Environment Variables](#environment-variables)
-3. [Linux Production (systemd)](#linux-production-systemd)
-4. [Windows Production (Windows Service)](#windows-production-windows-service)
-5. [Docker Production (Recommended)](#docker-production-recommended)
-6. [Kubernetes & HPA Autoscale](#kubernetes--hpa-autoscale)
-7. [Cloudflare Security Setup](#cloudflare-security-setup)
-8. [Admin Roles (Separate from Player Login)](#admin-roles-separate-from-player-login)
-9. [Frontend Features](#frontend-features)
-10. [Troubleshooting](#troubleshooting)
+3. [Database Migrations](#database-migrations)
+4. [Shopping Cart & Checkout](#shopping-cart--checkout)
+5. [Top-up & Minimum Amount](#top-up--minimum-amount)
+6. [Admin CMS & Permissions](#admin-cms--permissions)
+7. [Linux Production (systemd)](#linux-production-systemd)
+8. [Windows Production (Windows Service)](#windows-production-windows-service)
+9. [Docker Production (Recommended)](#docker-production-recommended)
+10. [Kubernetes & HPA Autoscale](#kubernetes--hpa-autoscale)
+11. [Cloudflare Security Setup](#cloudflare-security-setup)
+12. [Admin Roles (Separate from Player Login)](#admin-roles-separate-from-player-login)
+13. [Frontend Features](#frontend-features)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -89,6 +106,121 @@ cp .env.example .env
 | `MONGO_HOST` / `MONGO_PORT` | Default `127.0.0.1:27017` |
 | `MONGO_USER` / `MONGO_PASSWORD` | MongoDB credentials |
 | `MONGO_DB_NAME` | Database name (default `raven_webmarket`) |
+| `REDEEM_POINTS_PER_BAHT` | Redeem points earned per 1 THB top-up (default `1`) |
+| `MIN_TOPUP_AMOUNT` | Minimum top-up amount in THB (default `50`) |
+| `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW_SEC` | Redis rate limit per IP per path |
+| `REDIS_SESSION_DB` / `REDIS_CART_DB` / `REDIS_RATELIMIT_DB` | Redis logical DB indexes (default 0/1/2) |
+
+### Payment & Top-up Settings
+
+```env
+MIN_TOPUP_AMOUNT=50
+REDEEM_POINTS_PER_BAHT=1
+PAYMENT_WEBHOOK_SECRET=your-hmac-secret
+```
+
+Override min top-up at runtime without restart:
+
+```bash
+curl -X PUT https://api.yourdomain.com/api/v1/admin/payment-settings \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"min_topup_amount":100,"redeem_points_per_baht":1}'
+```
+
+Public read (for frontend): `GET /api/v1/payments/settings`
+
+---
+
+## Database Migrations
+
+Always run after clone or schema update:
+
+```bash
+bash scripts/migrate.sh          # Linux / Git Bash
+.\scripts\migrate.ps1            # Windows
+```
+
+| Migration | Purpose |
+|-----------|---------|
+| `001_init.sql` | Products, packs, orders, milestones, redeem, top-ups, mailbox |
+| `002_admin_rbac.sql` | Admin accounts, audit/activity logs, system settings |
+| `003_cms_content.sql` | CMS posts, forum seed content |
+| `004_autoscale_i9_profile.sql` | HPA defaults (i9 14th gen / 64 GB RAM) |
+| `005_shop_admin_features.sql` | Promotions, sale dates, admin permissions JSON |
+| `006_payment_settings.sql` | Default min top-up 50 THB |
+
+Requires `mysql` CLI and shop DB credentials from `.env`.
+
+---
+
+## Shopping Cart & Checkout
+
+### Architecture
+
+- **Storage:** Redis DB index `REDIS_CART_DB` (default `1`), key `cart:{discord_id}`
+- **Auth:** Discord OAuth JWT (`raven_token` cookie or `Authorization: Bearer`)
+- **Checkout:** `POST /api/v1/orders/checkout` — Redis lock + MariaDB `SELECT FOR UPDATE`
+
+### Player flow
+
+1. Login via Discord (ESX account required).
+2. Add products or packs from `/shop`.
+3. Review cart at `/cart`.
+4. Checkout → order created → FiveM delivery or offline mailbox.
+
+### Enforcing one purchase per ID
+
+In Admin → **Shop & CMS**, set **`max_limit_per_id = 1`** on the product or pack. Checkout rejects if the Discord ID already purchased that item.
+
+### Production checklist
+
+- Redis must be reachable (cart is lost if Redis down).
+- Set Cloudflare rate limit on `/api/v1/orders/checkout`.
+- Ensure `FIVEM_WEBHOOK_SECRET` matches FiveM resource for delivery.
+
+---
+
+## Top-up & Minimum Amount
+
+### Flow
+
+1. Player calls `POST /api/v1/payments/create` with `{ amount, payment_method }`.
+2. API validates **amount ≥ min_topup_amount** (from DB settings or `MIN_TOPUP_AMOUNT` env).
+3. Gateway or manual slip completes → webhook or admin approval → points + monthly accumulation updated.
+4. Discord webhook notification (if `DISCORD_WEBHOOK_URL` set).
+
+### Minimum amount sources (priority)
+
+1. `system_settings.payment_settings.min_topup_amount` (admin UI / API)
+2. `MIN_TOPUP_AMOUNT` in `.env`
+3. Default **50 THB**
+
+### Admin API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/payment-settings` | Current min top-up & points rate |
+| PUT | `/api/v1/admin/payment-settings` | Update `{ min_topup_amount, redeem_points_per_baht }` |
+
+---
+
+## Admin CMS & Permissions
+
+### CMS URL: `/admin/cms`
+
+| Tab | Configure |
+|-----|-----------|
+| Products | ESX item name/count, prices, sale window, stock, per-ID limit, image URL |
+| Packs | Multiple ESX items in one bundle |
+| Promotions | Time-limited campaigns linked to product/pack |
+| Milestones | Monthly tiers — threshold top-up → claim reward |
+| Redeem | Point-cost items |
+| Banners / News | Homepage & content |
+
+### Granular permissions
+
+At `/admin/security`, **dev_admin** creates accounts and toggles permissions (`products`, `packages`, `promotions`, `milestones`, `redeem`, `users`, `kpi`, `reset_monthly`, …). Empty permission list on `admin` role uses defaults from `GET /api/v1/admin/permissions`.
 
 ---
 
@@ -428,7 +560,10 @@ When creating admin accounts (dev_admin only), you can optionally set a `discord
 
 | Feature | Path | Description |
 |---------|------|-------------|
-| Shop | `/shop` | Product catalog with filters |
+| Shop | `/shop` | Products + **Packs & Bundles** tabs, search & category filters |
+| **Cart** | `/cart` | View cart, checkout (login required) |
+| Milestones | `/milestones` | Monthly top-up tiers — claim when eligible |
+| Redeem | `/redeem` | Spend redeem points |
 | Announcements | `/announcements` | Official notices (EN/TH) |
 | Daily Updates | `/news` | Patch notes and changelog |
 | Forum | `/forum` | Community threads (login required to post) |
@@ -436,7 +571,7 @@ When creating admin accounts (dev_admin only), you can optionally set a `discord
 | Language | Navbar EN/TH | Default English, persists in localStorage |
 | Ads | Homepage sidebar | Managed via CMS (`post_type=ad`) |
 
-CMS content managed at `/admin/cms` → **Announcements / Ads / Updates** panel.
+Shop catalog, packs, promotions, milestones, and redeem items are managed at **`/admin/cms`**.
 
 ---
 
@@ -474,6 +609,18 @@ kubectl describe hpa raven-api-hpa -n raven-webmarket
 
 Install metrics-server if missing (see DEPLOYMENT.md → Kubernetes section).
 
+### Top-up rejected — amount too low
+
+Ensure amount ≥ `MIN_TOPUP_AMOUNT` (default 50). Check `GET /api/v1/payments/settings` or admin **payment-settings**.
+
+### Cart empty after restart
+
+Cart lives in Redis — verify `REDIS_CART_DB` and Redis connectivity.
+
+### Checkout fails — limit exceeded
+
+Player may have reached `max_limit_per_id` or global `stock_limit`. Check Admin → purchases log.
+
 ### Frontend empty announcements
 
 Run migration 003: `bash scripts/migrate.sh` or `.\scripts\migrate.ps1`
@@ -510,4 +657,7 @@ server {
 
 ---
 
-See also: [README.md](./README.md) | [WEBSITE.MD](./WEBSITE.MD) | [PROGRESS.md](./PROGRESS.md)
+## See Also
+
+- [README.md](./README.md) — architecture, cart, top-up, API
+- [.env.example](./.env.example) — all environment variables

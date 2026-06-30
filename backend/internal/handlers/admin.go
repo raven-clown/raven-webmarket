@@ -45,6 +45,7 @@ func (a *API) RegisterAdminRoutes(r chi.Router, adminAuth func(http.Handler) htt
 		ar.Get("/api/v1/admin/milestones/events", a.AdminListMilestones)
 		ar.Get("/api/v1/admin/redeem/catalog", a.AdminListRedeem)
 		ar.Get("/api/v1/admin/monthly-reset/config", a.AdminGetMonthlyReset)
+		ar.Get("/api/v1/admin/payment-settings", a.AdminGetPaymentSettings)
 		ar.Get("/api/v1/admin/permissions", a.AdminPermissionsList)
 		ar.Post("/api/v1/admin/products", a.AdminUpsertProduct)
 		ar.Post("/api/v1/admin/packages", a.AdminUpsertPackage)
@@ -55,6 +56,7 @@ func (a *API) RegisterAdminRoutes(r chi.Router, adminAuth func(http.Handler) htt
 		ar.Post("/api/v1/admin/content/posts", a.AdminUpsertSitePost)
 		ar.Post("/api/v1/admin/reset-accumulations", a.AdminReset)
 		ar.Put("/api/v1/admin/monthly-reset/config", a.AdminSaveMonthlyReset)
+		ar.Put("/api/v1/admin/payment-settings", a.AdminSavePaymentSettings)
 		ar.Delete("/api/v1/admin/promotions/{id}", a.AdminDeletePromotion)
 
 		ar.Group(func(dr chi.Router) {

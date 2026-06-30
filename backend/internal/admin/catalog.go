@@ -391,6 +391,41 @@ func (s *Service) UpsertRedeemItem(ctx context.Context, actor middleware.AdminCl
 	return err
 }
 
+type PaymentSettings struct {
+	MinTopupAmount      float64 `json:"min_topup_amount"`
+	RedeemPointsPerBaht float64 `json:"redeem_points_per_baht"`
+}
+
+func (s *Service) GetPaymentSettings(ctx context.Context) (PaymentSettings, error) {
+	var cfg PaymentSettings
+	err := s.GetSetting(ctx, "payment_settings", &cfg)
+	if err == sql.ErrNoRows {
+		return PaymentSettings{MinTopupAmount: 50, RedeemPointsPerBaht: 1}, nil
+	}
+	if cfg.MinTopupAmount <= 0 {
+		cfg.MinTopupAmount = 50
+	}
+	if cfg.RedeemPointsPerBaht <= 0 {
+		cfg.RedeemPointsPerBaht = 1
+	}
+	return cfg, err
+}
+
+func (s *Service) SavePaymentSettings(ctx context.Context, actor middleware.AdminClaims, ip string, cfg PaymentSettings) error {
+	if err := s.checkPerm(actor, "cms"); err != nil {
+		return err
+	}
+	if cfg.MinTopupAmount <= 0 {
+		return fmt.Errorf("min_topup_amount must be greater than 0")
+	}
+	if err := s.SaveSetting(ctx, "payment_settings", cfg, actor.Username); err != nil {
+		return err
+	}
+	detail, _ := json.Marshal(cfg)
+	s.LogDetailed(ctx, actor.DiscordIDValue(), actor.Username, actor.Role, "system", "update_payment_settings", "setting", "payment_settings", string(detail), ip)
+	return nil
+}
+
 func (s *Service) GetMonthlyResetConfig(ctx context.Context) (MonthlyResetConfig, error) {
 	var cfg MonthlyResetConfig
 	err := s.GetSetting(ctx, "monthly_reset", &cfg)

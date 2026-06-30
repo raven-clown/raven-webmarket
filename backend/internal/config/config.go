@@ -52,6 +52,7 @@ type Config struct {
 	FiveMWebhookSecret string
 	FiveMAPIKey       string
 	RedeemPointsPerBaht float64
+	MinTopupAmount      float64
 	RateLimitRequests   int
 	RateLimitWindowSec  int
 	TrustedProxies      []string
@@ -112,6 +113,7 @@ func Load() *Config {
 		FiveMWebhookSecret: getEnv("FIVEM_WEBHOOK_SECRET", ""),
 		FiveMAPIKey:       getEnv("FIVEM_API_KEY", ""),
 		RedeemPointsPerBaht: getEnvFloat("REDEEM_POINTS_PER_BAHT", 1),
+		MinTopupAmount:      getEnvFloat("MIN_TOPUP_AMOUNT", 50),
 		RateLimitRequests:   getEnvInt("RATE_LIMIT_REQUESTS", 100),
 		RateLimitWindowSec:  getEnvInt("RATE_LIMIT_WINDOW_SEC", 60),
 		TrustedProxies:      splitCSV(getEnv("TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16")),

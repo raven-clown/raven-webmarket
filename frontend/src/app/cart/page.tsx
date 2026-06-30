@@ -28,6 +28,30 @@ export default function CartPage() {
 
   useEffect(load, []);
 
+  const updateQty = async (item: CartItem, quantity: number) => {
+    const token = getToken();
+    if (!token) return;
+    await fetch(`${API_URL}/api/v1/cart/items`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      credentials: 'include',
+      body: JSON.stringify({ type: item.type, id: item.id, quantity }),
+    });
+    load();
+  };
+
+  const removeItem = async (item: CartItem) => {
+    const token = getToken();
+    if (!token) return;
+    await fetch(`${API_URL}/api/v1/cart/items`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      credentials: 'include',
+      body: JSON.stringify({ type: item.type, id: item.id }),
+    });
+    load();
+  };
+
   const checkout = async () => {
     const token = getToken();
     if (!token) {
@@ -60,14 +84,25 @@ export default function CartPage() {
         <>
           <table>
             <thead>
-              <tr><th>Item</th><th>Qty</th><th>Price</th></tr>
+              <tr><th>Item</th><th>Qty</th><th>Price</th><th></th></tr>
             </thead>
             <tbody>
               {cart.items.map((item) => (
                 <tr key={`${item.type}-${item.id}`}>
                   <td>{item.name}</td>
-                  <td>{item.quantity}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.quantity}
+                      style={{ width: 60 }}
+                      onChange={(e) => updateQty(item, Number(e.target.value))}
+                    />
+                  </td>
                   <td>฿{(item.price * item.quantity).toLocaleString()}</td>
+                  <td>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeItem(item)}>Remove</button>
+                  </td>
                 </tr>
               ))}
             </tbody>

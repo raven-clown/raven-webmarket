@@ -71,6 +71,7 @@ func (a *API) Routes(r chi.Router, authMw, adminAuthMw func(http.Handler) http.H
 	r.Get("/api/v1/catalog/products", a.GetProducts)
 	r.Get("/api/v1/catalog/packages", a.GetPackages)
 	r.Get("/api/v1/catalog/promotions", a.GetPromotions)
+	r.Get("/api/v1/payments/settings", a.PaymentSettings)
 	r.Get("/api/v1/content/posts", a.GetSitePosts)
 	r.Get("/api/v1/forum/threads", a.GetForumThreads)
 	r.Get("/api/v1/forum/threads/{id}", a.GetForumThread)
@@ -329,6 +330,10 @@ func (a *API) RedeemItem(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]string{"status": "redeemed"})
 }
 
+func (a *API) PaymentSettings(w http.ResponseWriter, r *http.Request) {
+	response.JSON(w, http.StatusOK, a.payment.PublicSettings(r.Context()))
+}
+
 func (a *API) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	var req struct {
@@ -341,7 +346,7 @@ func (a *API) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	ref, err := a.payment.CreatePending(r.Context(), user.DiscordID, user.Identifier, req.PaymentMethod, req.Amount)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"tx_ref": ref})

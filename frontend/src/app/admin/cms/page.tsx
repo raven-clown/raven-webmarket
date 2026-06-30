@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/adminApi';
 
-type Tab = 'products' | 'packages' | 'promotions' | 'milestones' | 'redeem' | 'banners' | 'content';
+type Tab = 'products' | 'packages' | 'promotions' | 'milestones' | 'redeem' | 'banners' | 'content' | 'payment';
 
 const emptyProduct = {
   category_id: 1, sku: '', name: '', description: '', image_url: '',
@@ -44,13 +44,14 @@ export default function AdminCMSPage() {
     image_url: '', link_url: '', placement: 'home', sort_order: 0, is_pinned: 0, is_active: 1,
     publish_date: new Date().toISOString().slice(0, 10),
   });
-  const [msg, setMsg] = useState('');
+  const [paymentCfg, setPaymentCfg] = useState({ min_topup_amount: 50, redeem_points_per_baht: 1 });
 
   const load = () => {
     adminFetch<{ id: number; name: string }[]>('/api/v1/admin/catalog/categories').then(setCategories).catch(() => {});
     adminFetch<Record<string, unknown>[]>('/api/v1/admin/catalog/products').then(setProducts).catch(() => {});
     adminFetch<Record<string, unknown>[]>('/api/v1/admin/catalog/packages').then(setPackages).catch(() => {});
     adminFetch<Record<string, unknown>[]>('/api/v1/admin/promotions').then(setPromotions).catch(() => {});
+    adminFetch<{ min_topup_amount: number; redeem_points_per_baht: number }>('/api/v1/admin/payment-settings').then(setPaymentCfg).catch(() => {});
   };
 
   useEffect(() => { load(); }, []);
@@ -97,6 +98,11 @@ export default function AdminCMSPage() {
     setMsg('Content saved');
   };
 
+  const savePaymentCfg = async () => {
+    await adminFetch('/api/v1/admin/payment-settings', { method: 'PUT', body: JSON.stringify(paymentCfg) });
+    setMsg('Payment settings saved');
+  };
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'products', label: 'Products' },
     { id: 'packages', label: 'Packs' },
@@ -105,6 +111,7 @@ export default function AdminCMSPage() {
     { id: 'redeem', label: 'Redeem' },
     { id: 'banners', label: 'Banners' },
     { id: 'content', label: 'News/Ads' },
+    { id: 'payment', label: 'Top-up Rules' },
   ];
 
   return (
@@ -263,6 +270,15 @@ export default function AdminCMSPage() {
           {field('Title TH', post.title_th, (v) => setPost({ ...post, title_th: v }))}
           {field('Publish Date', post.publish_date, (v) => setPost({ ...post, publish_date: v }))}
           <button className="btn btn-primary" onClick={savePost}>Save Content</button>
+        </div>
+      )}
+
+      {tab === 'payment' && (
+        <div className="card" style={{ padding: '1.5rem', maxWidth: 480 }}>
+          <h2>Top-up Rules</h2>
+          {field('Minimum Top-up (THB)', paymentCfg.min_topup_amount, (v) => setPaymentCfg({ ...paymentCfg, min_topup_amount: Number(v) }), 'number')}
+          {field('Redeem Points per 1 THB', paymentCfg.redeem_points_per_baht, (v) => setPaymentCfg({ ...paymentCfg, redeem_points_per_baht: Number(v) }), 'number')}
+          <button className="btn btn-primary" onClick={savePaymentCfg}>Save Payment Settings</button>
         </div>
       )}
     </div>
