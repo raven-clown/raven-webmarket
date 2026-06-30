@@ -1,0 +1,5 @@
+RegisterNetEvent('raven-webmarket:notify', function(message)
+    SetNotificationTextEntry('STRING')
+    AddTextComponentString(message)
+    DrawNotification(false, true)
+end)
