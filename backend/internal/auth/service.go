@@ -25,6 +25,11 @@ type Service struct {
 	oauth *oauth2.Config
 }
 
+type ESXUserRow struct {
+	Identifier string
+	DiscordID  string
+}
+
 func New(cfg *config.Config, db, esxDB *sql.DB, redis *redisstore.Store) *Service {
 	return &Service{
 		cfg:   cfg,
@@ -67,33 +72,45 @@ func (s *Service) HandleCallback(ctx context.Context, code string) (string, erro
 	if err := json.Unmarshal(body, &user); err != nil {
 		return "", err
 	}
-	identifier, err := s.resolveIdentifier(ctx, user.ID)
-	if err != nil {
-		return "", fmt.Errorf("no esx account linked for discord:%s", user.ID)
-	}
-	isAdmin := s.isAdmin(user.ID)
-	jwtToken, err := s.issueJWT(user.ID, identifier, isAdmin)
+	row, err := s.lookupESXUser(ctx, user.ID)
 	if err != nil {
 		return "", err
 	}
-	s.ensureProfile(ctx, user.ID, identifier, user.Username)
+	isAdmin := s.isAdmin(user.ID)
+	jwtToken, err := s.issueJWT(user.ID, row.Identifier, isAdmin)
+	if err != nil {
+		return "", err
+	}
+	s.ensureProfile(ctx, user.ID, row.Identifier, user.Username)
 	sessionKey := "session:" + user.ID
 	s.redis.Session.Set(ctx, sessionKey, jwtToken, 24*time.Hour)
 	return jwtToken, nil
 }
 
-func (s *Service) resolveIdentifier(ctx context.Context, discordID string) (string, error) {
-	discordKey := "discord:" + discordID
-	var identifier string
-	err := s.esxDB.QueryRowContext(ctx, `
-		SELECT identifier FROM users WHERE identifier LIKE ? OR identifier = ? LIMIT 1`,
-		"%"+discordKey+"%", discordKey).Scan(&identifier)
-	if err == sql.ErrNoRows {
-		err = s.esxDB.QueryRowContext(ctx, `
-			SELECT identifier FROM users WHERE discord = ? OR discord = ? LIMIT 1`,
-			discordID, discordKey).Scan(&identifier)
+func (s *Service) lookupESXUser(ctx context.Context, discordID string) (*ESXUserRow, error) {
+	key := discordKey(discordID)
+	queries := []string{
+		`SELECT identifier FROM users WHERE discord_id = ? LIMIT 1`,
+		`SELECT identifier FROM users WHERE discord = ? LIMIT 1`,
 	}
-	return identifier, err
+	for _, query := range queries {
+		var identifier string
+		err := s.esxDB.QueryRowContext(ctx, query, key).Scan(&identifier)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			if isUnknownColumn(err) {
+				continue
+			}
+			return nil, err
+		}
+		if !isValidSteamIdentifier(identifier) {
+			return nil, rejectInvalidIdentifier(identifier)
+		}
+		return &ESXUserRow{Identifier: identifier, DiscordID: key}, nil
+	}
+	return nil, fmt.Errorf("login denied: discord account not linked in game database (%s)", key)
 }
 
 func (s *Service) isAdmin(discordID string) bool {
@@ -130,7 +147,7 @@ func (s *Service) ensureProfile(ctx context.Context, discordID, identifier, disp
 }
 
 func (s *Service) Logout(ctx context.Context, discordID string) {
-	s.redis.Session.Del(ctx, "session:"+discordID)
+	s.redis.Session.Del(ctx, "session:" + discordID)
 }
 
 func (s *Service) Me(ctx context.Context, discordID string) (map[string]interface{}, error) {
@@ -153,8 +170,12 @@ func (s *Service) Me(ctx context.Context, discordID string) (map[string]interfac
 	if err != nil {
 		return nil, err
 	}
+	if !isValidSteamIdentifier(profile.Identifier) {
+		return nil, fmt.Errorf("account not eligible: invalid identifier on file")
+	}
 	return map[string]interface{}{
 		"discord_id":           profile.DiscordID,
+		"discord_linked":       discordKey(profile.DiscordID),
 		"identifier":           profile.Identifier,
 		"display_name":         profile.DisplayName.String,
 		"monthly_accumulation": profile.MonthlyAccumulation,

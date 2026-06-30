@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -155,12 +156,12 @@ func (a *API) DiscordLogin(w http.ResponseWriter, r *http.Request) {
 func (a *API) DiscordCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		response.Error(w, http.StatusBadRequest, "missing code")
+		http.Redirect(w, r, a.cfg.FrontendURL+"/shop?login=error&message="+url.QueryEscape("missing authorization code"), http.StatusTemporaryRedirect)
 		return
 	}
 	token, err := a.auth.HandleCallback(r.Context(), code)
 	if err != nil {
-		response.Error(w, http.StatusUnauthorized, err.Error())
+		http.Redirect(w, r, a.cfg.FrontendURL+"/shop?login=error&message="+url.QueryEscape(err.Error()), http.StatusTemporaryRedirect)
 		return
 	}
 	auth.WriteAuthCookie(w, a.cfg, token)
