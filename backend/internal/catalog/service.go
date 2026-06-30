@@ -97,7 +97,9 @@ func (s *Service) GetProducts(ctx context.Context, categoryID uint, search strin
 			regular_price, sale_price, esx_item_name, esx_item_count, stock_limit, stock_sold,
 			max_limit_per_id, expiry_date, is_featured, is_active
 		FROM shop_products
-		WHERE is_active = 1 AND (expiry_date IS NULL OR expiry_date > UTC_TIMESTAMP())`
+		WHERE is_active = 1
+			AND (expiry_date IS NULL OR expiry_date > UTC_TIMESTAMP())
+			AND (sale_start_date IS NULL OR sale_start_date <= UTC_TIMESTAMP())`
 	args := []interface{}{}
 	if categoryID > 0 {
 		query += " AND category_id = ?"
@@ -137,7 +139,9 @@ func (s *Service) GetPackages(ctx context.Context, featuredOnly bool) ([]models.
 			regular_price, sale_price, stock_limit, stock_sold, max_limit_per_id,
 			expiry_date, is_featured, is_active
 		FROM shop_packages
-		WHERE is_active = 1 AND (expiry_date IS NULL OR expiry_date > UTC_TIMESTAMP())`
+		WHERE is_active = 1
+			AND (expiry_date IS NULL OR expiry_date > UTC_TIMESTAMP())
+			AND (sale_start_date IS NULL OR sale_start_date <= UTC_TIMESTAMP())`
 	if featuredOnly {
 		query += " AND is_featured = 1"
 	}
@@ -173,6 +177,34 @@ func (s *Service) getPackageItems(ctx context.Context, packageID uint) ([]models
 			return nil, err
 		}
 		items = append(items, it)
+	}
+	return items, nil
+}
+
+func (s *Service) GetActivePromotions(ctx context.Context) ([]models.Promotion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, COALESCE(description,''), target_type, target_id, COALESCE(banner_image_url,''),
+			regular_price, sale_price, max_limit_per_id, start_date, end_date, is_active, sort_order
+		FROM shop_promotions
+		WHERE is_active = 1 AND start_date <= UTC_TIMESTAMP() AND end_date > UTC_TIMESTAMP()
+		ORDER BY sort_order ASC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []models.Promotion
+	for rows.Next() {
+		var p models.Promotion
+		var active int
+		var start, end time.Time
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.TargetType, &p.TargetID, &p.BannerImageURL,
+			&p.RegularPrice, &p.SalePrice, &p.MaxLimitPerID, &start, &end, &active, &p.SortOrder); err != nil {
+			return nil, err
+		}
+		p.StartDate = start.Format(time.RFC3339)
+		p.EndDate = end.Format(time.RFC3339)
+		p.IsActive = active == 1
+		items = append(items, p)
 	}
 	return items, nil
 }

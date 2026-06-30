@@ -1,0 +1,23 @@
+[Unit]
+Description=Raven Webmarket API
+After=network.target mariadb.service redis.service
+Wants=mariadb.service redis.service
+
+[Service]
+Type=simple
+User=raven
+Group=raven
+WorkingDirectory=/opt/raven-webmarket/backend
+EnvironmentFile=/opt/raven-webmarket/.env
+ExecStart=/opt/raven-webmarket/backend/raven-api
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/raven-webmarket
+
+[Install]
+WantedBy=multi-user.target

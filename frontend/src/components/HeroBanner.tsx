@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 type Banner = { id: number; title: string; image_url: string; link_url: string };
 
 export default function HeroBanner({ banners }: { banners: Banner[] }) {
   const [index, setIndex] = useState(0);
+  const { strings } = useI18n();
 
   useEffect(() => {
     if (banners.length <= 1) return;
@@ -15,8 +17,11 @@ export default function HeroBanner({ banners }: { banners: Banner[] }) {
 
   if (!banners.length) {
     return (
-      <div className="hero-slider" style={{ background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color: 'var(--muted)' }}>Welcome to Raven Webmarket</span>
+      <div className="hero-slider hero-empty">
+        <div className="hero-overlay">
+          <h2>Raven Webmarket</h2>
+          <p style={{ color: 'var(--muted)', marginTop: '0.5rem' }}>{strings.footer.tagline}</p>
+        </div>
       </div>
     );
   }
@@ -30,10 +35,29 @@ export default function HeroBanner({ banners }: { banners: Banner[] }) {
           style={{ backgroundImage: `url(${b.image_url})` }}
         >
           <div className="hero-overlay">
-            <h2>{b.title}</h2>
+            {b.link_url ? (
+              <a href={b.link_url} target="_blank" rel="noopener noreferrer">
+                <h2>{b.title}</h2>
+              </a>
+            ) : (
+              <h2>{b.title}</h2>
+            )}
           </div>
         </div>
       ))}
+      {banners.length > 1 && (
+        <div className="hero-dots">
+          {banners.map((b, i) => (
+            <button
+              key={b.id}
+              type="button"
+              className={`hero-dot ${i === index ? 'active' : ''}`}
+              onClick={() => setIndex(i)}
+              aria-label={`Slide ${i + 1}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

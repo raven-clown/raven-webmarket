@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: raven-webmarket
+resources:
+  - namespace.yaml
+  - api-deployment.yaml
+  - frontend-deployment.yaml
+  - hpa-api.yaml
+  - hpa-frontend.yaml
+  - servicemonitor.yaml

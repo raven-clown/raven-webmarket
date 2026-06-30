@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/raven-clown/raven-webmarket/backend/internal/activity"
 	"github.com/raven-clown/raven-webmarket/backend/internal/config"
 	"github.com/raven-clown/raven-webmarket/backend/internal/lock"
 	"github.com/raven-clown/raven-webmarket/backend/internal/models"
@@ -23,10 +24,11 @@ type Service struct {
 	db      *sql.DB
 	redis   *redisstore.Store
 	storage *storage.Service
+	log     *activity.Logger
 }
 
-func New(cfg *config.Config, db *sql.DB, redis *redisstore.Store, storage *storage.Service) *Service {
-	return &Service{cfg: cfg, db: db, redis: redis, storage: storage}
+func New(cfg *config.Config, db *sql.DB, redis *redisstore.Store, storage *storage.Service, log *activity.Logger) *Service {
+	return &Service{cfg: cfg, db: db, redis: redis, storage: storage, log: log}
 }
 
 type WebhookPayload struct {
@@ -86,6 +88,11 @@ func (s *Service) ProcessWebhook(ctx context.Context, payload WebhookPayload) er
 		}
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+		if s.log != nil {
+			s.log.Write(ctx, "topup", "user", payload.DiscordID, "topup_completed", "transaction", payload.Ref, "", map[string]interface{}{
+				"amount": payload.Amount, "points": points, "method": payload.PaymentMethod,
+			})
 		}
 		go s.notifyDiscord(payload, identifier.String, displayName.String, points, slipURL)
 		return nil

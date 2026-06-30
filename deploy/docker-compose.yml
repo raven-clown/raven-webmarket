@@ -38,6 +38,23 @@ services:
     volumes:
       - minio_data:/data
 
+  mongodb:
+    profiles: ["mongo"]
+    image: mongo:7
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-raven}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-changeme}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-raven_webmarket}
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ..
@@ -46,6 +63,7 @@ services:
       - ../.env
     ports:
       - "${API_PORT:-8080}:8080"
+    restart: unless-stopped
     depends_on:
       mariadb:
         condition: service_healthy
@@ -65,6 +83,7 @@ services:
       - ../.env
     ports:
       - "3000:3000"
+    restart: unless-stopped
     depends_on:
       - api
 
@@ -72,3 +91,4 @@ volumes:
   mariadb_data:
   redis_data:
   minio_data:
+  mongodb_data:

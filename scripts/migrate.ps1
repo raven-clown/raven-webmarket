@@ -18,8 +18,16 @@ $CreateDb = "CREATE DATABASE IF NOT EXISTS ``$DbName`` CHARACTER SET utf8mb4 COL
 if ($DbPassword) {
     & mysql -h $DbHost -P $DbPort -u $DbUser -p"$DbPassword" -e $CreateDb
     Get-Content $SqlFile -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser -p"$DbPassword" $DbName
+    $SqlFile2 = Join-Path $Root "database\migrations\002_admin_rbac.sql"
+    Get-Content $SqlFile2 -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser -p"$DbPassword" $DbName
+    $SqlFile3 = Join-Path $Root "database\migrations\003_cms_content.sql"
+    Get-Content $SqlFile3 -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser -p"$DbPassword" $DbName
 } else {
     & mysql -h $DbHost -P $DbPort -u $DbUser -e $CreateDb
     Get-Content $SqlFile -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser $DbName
+    $SqlFile2 = Join-Path $Root "database\migrations\002_admin_rbac.sql"
+    Get-Content $SqlFile2 -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser $DbName
+    $SqlFile3 = Join-Path $Root "database\migrations\003_cms_content.sql"
+    Get-Content $SqlFile3 -Raw | & mysql -h $DbHost -P $DbPort -u $DbUser $DbName
 }
 Write-Host "Migration complete: $DbName"

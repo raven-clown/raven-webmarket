@@ -1,0 +1,22 @@
+[Unit]
+Description=Raven Webmarket Frontend
+After=network.target raven-api.service
+Wants=raven-api.service
+
+[Service]
+Type=simple
+User=raven
+Group=raven
+WorkingDirectory=/opt/raven-webmarket/frontend
+EnvironmentFile=/opt/raven-webmarket/.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/node /opt/raven-webmarket/frontend/server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

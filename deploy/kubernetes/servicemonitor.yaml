@@ -2,7 +2,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: raven-api
+  namespace: raven-webmarket
 spec:
+  namespaceSelector:
+    matchNames:
+      - raven-webmarket
   selector:
     matchLabels:
       app: raven-api

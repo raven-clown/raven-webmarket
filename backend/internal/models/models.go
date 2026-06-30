@@ -25,6 +25,7 @@ type Product struct {
 	StockSold      int        `json:"stock_sold"`
 	MaxLimitPerID  int        `json:"max_limit_per_id"`
 	ExpiryDate     *time.Time `json:"expiry_date"`
+	SaleStartDate  *time.Time `json:"sale_start_date"`
 	IsFeatured     bool       `json:"is_featured"`
 	IsActive       bool       `json:"is_active"`
 	DiscountPct    float64    `json:"discount_pct,omitempty"`
@@ -52,6 +53,7 @@ type Package struct {
 	StockSold      int        `json:"stock_sold"`
 	MaxLimitPerID  int        `json:"max_limit_per_id"`
 	ExpiryDate     *time.Time `json:"expiry_date"`
+	SaleStartDate  *time.Time `json:"sale_start_date"`
 	IsFeatured     bool       `json:"is_featured"`
 	IsActive       bool       `json:"is_active"`
 	Items          []PackageItem `json:"items,omitempty"`
@@ -59,6 +61,8 @@ type Package struct {
 }
 
 type PackageItem struct {
+	ID           uint   `json:"id"`
+	PackageID    uint   `json:"package_id"`
 	ESXItemName  string `json:"esx_item_name"`
 	ESXItemCount int    `json:"esx_item_count"`
 }
@@ -128,11 +132,37 @@ type TopupTransaction struct {
 type AuditLog struct {
 	ID             uint      `json:"id"`
 	AdminDiscordID string    `json:"admin_discord_id"`
+	AdminUsername  string    `json:"admin_username"`
 	Action         string    `json:"action"`
 	TargetType     string    `json:"target_type"`
 	TargetID       string    `json:"target_id"`
 	Detail         string    `json:"detail"`
 	IPAddress      string    `json:"ip_address"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type ActivityLog struct {
+	ID         uint      `json:"id"`
+	Category   string    `json:"category"`
+	ActorType  string    `json:"actor_type"`
+	ActorID    string    `json:"actor_id"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	Detail     string    `json:"detail"`
+	IPAddress  string    `json:"ip_address"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type PurchaseLog struct {
+	ID             uint64    `json:"id"`
+	OrderRef       string    `json:"order_ref"`
+	DiscordID      string    `json:"discord_id"`
+	Identifier     string    `json:"identifier"`
+	TotalAmount    float64   `json:"total_amount"`
+	Status         string    `json:"status"`
+	DeliveryStatus string    `json:"delivery_status"`
+	ItemCount      int       `json:"item_count"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -164,4 +194,60 @@ type DeliveryPayload struct {
 type DeliveryItem struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+}
+
+type Promotion struct {
+	ID             uint    `json:"id"`
+	Name           string  `json:"name"`
+	Description    string  `json:"description"`
+	TargetType     string  `json:"target_type"`
+	TargetID       uint    `json:"target_id"`
+	BannerImageURL string  `json:"banner_image_url"`
+	RegularPrice   float64 `json:"regular_price"`
+	SalePrice      float64 `json:"sale_price"`
+	MaxLimitPerID  int     `json:"max_limit_per_id"`
+	StartDate      string  `json:"start_date"`
+	EndDate        string  `json:"end_date"`
+	IsActive       bool    `json:"is_active"`
+	SortOrder      int     `json:"sort_order"`
+}
+
+type SitePost struct {
+	ID          uint       `json:"id"`
+	PostType    string     `json:"post_type"`
+	TitleEN     string     `json:"title_en"`
+	TitleTH     string     `json:"title_th"`
+	BodyEN      string     `json:"body_en"`
+	BodyTH      string     `json:"body_th"`
+	ImageURL    string     `json:"image_url"`
+	LinkURL     string     `json:"link_url"`
+	Placement   string     `json:"placement"`
+	SortOrder   int        `json:"sort_order"`
+	IsPinned    bool       `json:"is_pinned"`
+	IsActive    bool       `json:"is_active"`
+	PublishDate *time.Time `json:"publish_date,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type ForumThread struct {
+	ID         uint      `json:"id"`
+	DiscordID  string    `json:"discord_id"`
+	AuthorName string    `json:"author_name"`
+	Title      string    `json:"title"`
+	Body       string    `json:"body"`
+	IsPinned   bool      `json:"is_pinned"`
+	IsLocked   bool      `json:"is_locked"`
+	ReplyCount int       `json:"reply_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ForumReply struct {
+	ID         uint64    `json:"id"`
+	ThreadID   uint      `json:"thread_id"`
+	DiscordID  string    `json:"discord_id"`
+	AuthorName string    `json:"author_name"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
 }

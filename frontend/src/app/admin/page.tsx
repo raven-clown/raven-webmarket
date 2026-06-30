@@ -1,24 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_URL } from '@/lib/api';
-
-function getToken() {
-  const match = document.cookie.match(/raven_token=([^;]+)/);
-  return match ? match[1] : '';
-}
+import { adminFetch, isDevAdmin } from '@/lib/adminApi';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({ revenue: 0, peak: 0, spenders: 0 });
+  const [role, setRole] = useState('');
 
   useEffect(() => {
-    const token = getToken();
-    const headers = { Authorization: `Bearer ${token}` };
     Promise.all([
-      fetch(`${API_URL}/api/v1/admin/kpi/revenue?period=monthly`, { headers }).then((r) => r.json()),
-      fetch(`${API_URL}/api/v1/admin/kpi/peak`, { headers }).then((r) => r.json()),
-      fetch(`${API_URL}/api/v1/admin/kpi/top-spenders`, { headers }).then((r) => r.json()),
-    ]).then(([rev, peak, spenders]) => {
+      adminFetch<{ role: string }>('/api/v1/admin/auth/me'),
+      adminFetch<{ period: string; amount: number }[]>('/api/v1/admin/kpi/revenue?period=monthly'),
+      adminFetch<{ amount: number }>('/api/v1/admin/kpi/peak'),
+      adminFetch<unknown[]>('/api/v1/admin/kpi/top-spenders'),
+    ]).then(([me, rev, peak, spenders]) => {
+      setRole(me.role);
       const monthRev = Array.isArray(rev) && rev[0] ? rev[0].amount : 0;
       setStats({
         revenue: monthRev,
@@ -28,14 +24,16 @@ export default function AdminDashboard() {
     });
   }, []);
 
+  const resetMonthly = async () => {
+    if (!confirm('Reset monthly accumulation only? (Redeem points kept)')) return;
+    await adminFetch('/api/v1/admin/reset-accumulations', { method: 'POST' });
+    alert('Monthly accumulation reset.');
+  };
+
   const resetAll = async () => {
-    if (!confirm('Reset all monthly accumulation and redeem points? Revenue logs will NOT be deleted.')) return;
-    const token = getToken();
-    await fetch(`${API_URL}/api/v1/admin/reset-accumulations`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    alert('Accumulations reset.');
+    if (!confirm('Reset monthly accumulation AND redeem points? Revenue logs will NOT be deleted.')) return;
+    await adminFetch('/api/v1/admin/reset-accumulations?include_redeem=1', { method: 'POST' });
+    alert('All accumulations reset.');
   };
 
   return (
@@ -55,7 +53,12 @@ export default function AdminDashboard() {
           <h2>{stats.spenders}</h2>
         </div>
       </div>
-      <button className="btn btn-ghost" onClick={resetAll}>Reset All Accumulations</button>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <button className="btn btn-ghost" onClick={resetMonthly}>Reset Monthly Accumulation</button>
+        {isDevAdmin(role) && (
+          <button className="btn btn-ghost" onClick={resetAll}>Reset All (+ Redeem Points)</button>
+        )}
+      </div>
     </div>
   );
 }

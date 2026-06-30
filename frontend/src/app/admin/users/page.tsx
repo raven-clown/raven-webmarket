@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { API_URL } from '@/lib/api';
+import { adminFetch } from '@/lib/adminApi';
 
 type User = {
   discord_id: string;
@@ -23,10 +23,6 @@ type Topup = {
   created_at: string;
 };
 
-function getToken() {
-  const match = document.cookie.match(/raven_token=([^;]+)/);
-  return match ? match[1] : '';
-}
 
 export default function AdminUsersPage() {
   const [query, setQuery] = useState('');
@@ -36,20 +32,14 @@ export default function AdminUsersPage() {
   const [slipUrl, setSlipUrl] = useState('');
 
   const search = async () => {
-    const token = getToken();
-    const res = await fetch(`${API_URL}/api/v1/admin/users/search?q=${encodeURIComponent(query)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setUsers(await res.json());
+    const res = await adminFetch<User[]>(`/api/v1/admin/users/search?q=${encodeURIComponent(query)}`);
+    setUsers(res);
   };
 
   const loadTopups = async (discordId: string) => {
     setSelected(discordId);
-    const token = getToken();
-    const res = await fetch(`${API_URL}/api/v1/admin/users/${discordId}/topups`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setTopups(await res.json());
+    const res = await adminFetch<Topup[]>(`/api/v1/admin/users/${discordId}/topups`);
+    setTopups(res);
   };
 
   return (

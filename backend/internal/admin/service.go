@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -16,30 +15,6 @@ type Service struct {
 
 func New(db *sql.DB) *Service {
 	return &Service{db: db}
-}
-
-func (s *Service) Log(ctx context.Context, adminDiscordID, action, targetType, targetID, detail, ip string) {
-	_, _ = s.db.ExecContext(ctx, `
-		INSERT INTO admin_audit_logs (admin_discord_id, action, target_type, target_id, detail, ip_address)
-		VALUES (?, ?, ?, ?, ?, ?)`, adminDiscordID, action, targetType, targetID, detail, ip)
-}
-
-func (s *Service) ResetAccumulations(ctx context.Context, adminDiscordID, ip string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `
-		UPDATE user_shop_profiles SET monthly_accumulation = 0, redeem_points = 0`)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	s.Log(ctx, adminDiscordID, "reset_accumulations", "all", "all", "{}", ip)
-	return nil
 }
 
 func (s *Service) SearchUser(ctx context.Context, query string) ([]models.UserProfile, error) {
@@ -88,27 +63,7 @@ func (s *Service) UserTopups(ctx context.Context, discordID string) ([]models.To
 }
 
 func (s *Service) AuditLogs(ctx context.Context, limit int) ([]models.AuditLog, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, admin_discord_id, action, COALESCE(target_type,''), COALESCE(target_id,''),
-			COALESCE(detail,'{}'), COALESCE(ip_address,''), created_at
-		FROM admin_audit_logs ORDER BY created_at DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var logs []models.AuditLog
-	for rows.Next() {
-		var l models.AuditLog
-		if err := rows.Scan(&l.ID, &l.AdminDiscordID, &l.Action, &l.TargetType, &l.TargetID,
-			&l.Detail, &l.IPAddress, &l.CreatedAt); err != nil {
-			return nil, err
-		}
-		logs = append(logs, l)
-	}
-	return logs, nil
+	return s.AuditLogsFiltered(ctx, "", "", limit)
 }
 
 func (s *Service) RevenueOverview(ctx context.Context, period string) ([]models.KPIRevenue, error) {
@@ -189,35 +144,4 @@ func (s *Service) TopSpenders(ctx context.Context, limit int) ([]models.KPITopSp
 		items = append(items, t)
 	}
 	return items, nil
-}
-
-func (s *Service) UpsertProduct(ctx context.Context, adminID, ip string, data map[string]interface{}) error {
-	detail, _ := json.Marshal(data)
-	s.Log(ctx, adminID, "upsert_product", "product", fmt.Sprint(data["sku"]), string(detail), ip)
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO shop_products (category_id, sku, name, description, image_url, regular_price, sale_price,
-			esx_item_name, esx_item_count, stock_limit, max_limit_per_id, expiry_date, is_featured, is_active)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			name = VALUES(name), description = VALUES(description), image_url = VALUES(image_url),
-			regular_price = VALUES(regular_price), sale_price = VALUES(sale_price),
-			stock_limit = VALUES(stock_limit), max_limit_per_id = VALUES(max_limit_per_id),
-			expiry_date = VALUES(expiry_date), is_featured = VALUES(is_featured), is_active = VALUES(is_active)`,
-		data["category_id"], data["sku"], data["name"], data["description"], data["image_url"],
-		data["regular_price"], data["sale_price"], data["esx_item_name"], data["esx_item_count"],
-		data["stock_limit"], data["max_limit_per_id"], data["expiry_date"], data["is_featured"], data["is_active"])
-	return err
-}
-
-func (s *Service) UpsertBanner(ctx context.Context, adminID, ip string, data map[string]interface{}) error {
-	detail, _ := json.Marshal(data)
-	s.Log(ctx, adminID, "upsert_banner", "banner", fmt.Sprint(data["title"]), string(detail), ip)
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO shop_banners (title, image_url, link_url, sort_order, is_active)
-		VALUES (?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			title = VALUES(title), image_url = VALUES(image_url), link_url = VALUES(link_url),
-			sort_order = VALUES(sort_order), is_active = VALUES(is_active)`,
-		data["title"], data["image_url"], data["link_url"], data["sort_order"], data["is_active"])
-	return err
 }

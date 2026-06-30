@@ -19,4 +19,6 @@ if [ -n "$DB_PASSWORD" ]; then
 fi
 "${MYSQL[@]}" -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 "${MYSQL[@]}" "$DB_NAME" < "$ROOT/database/migrations/001_init.sql"
+"${MYSQL[@]}" "$DB_NAME" < "$ROOT/database/migrations/002_admin_rbac.sql"
+"${MYSQL[@]}" "$DB_NAME" < "$ROOT/database/migrations/003_cms_content.sql"
 echo "Migration complete: $DB_NAME"

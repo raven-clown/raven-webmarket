@@ -1,7 +1,8 @@
-import Link from 'next/link';
 import { fetchAPI } from '@/lib/api';
 import HeroBanner from '@/components/HeroBanner';
-import ProductCard from '@/components/ProductCard';
+import AnnouncementTicker from '@/components/AnnouncementTicker';
+import AdSidebar from '@/components/AdSidebar';
+import HomeSections from '@/components/HomeSections';
 
 type Banner = { id: number; title: string; image_url: string; link_url: string };
 type Product = {
@@ -12,35 +13,56 @@ type Product = {
   sale_price: number;
   discount_pct?: number;
 };
+type SitePost = {
+  id: number;
+  post_type: string;
+  title_en: string;
+  title_th?: string;
+  body_en?: string;
+  body_th?: string;
+  image_url?: string;
+  link_url?: string;
+  is_pinned?: boolean;
+  publish_date?: string;
+};
 
 export default async function HomePage() {
   let banners: Banner[] = [];
   let featured: Product[] = [];
+  let announcements: SitePost[] = [];
+  let updates: SitePost[] = [];
+  let ads: SitePost[] = [];
+
   try {
-    [banners, featured] = await Promise.all([
+    [banners, featured, announcements, updates, ads] = await Promise.all([
       fetchAPI<Banner[]>('/api/v1/catalog/banners'),
       fetchAPI<Product[]>('/api/v1/catalog/products?featured=1'),
+      fetchAPI<SitePost[]>('/api/v1/content/posts?type=announcement&placement=home&limit=5'),
+      fetchAPI<SitePost[]>('/api/v1/content/posts?type=daily_update&limit=3'),
+      fetchAPI<SitePost[]>('/api/v1/content/posts?type=ad&placement=sidebar&limit=3'),
     ]);
   } catch {
     banners = [];
     featured = [];
+    announcements = [];
+    updates = [];
+    ads = [];
   }
 
   return (
-    <div className="container">
-      <HeroBanner banners={banners} />
-      <section>
-        <h2 className="section-title">Recommended Promos</h2>
-        <div className="grid-products">
-          {featured.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
+    <>
+      <AnnouncementTicker items={announcements} />
+      <div className="container home-layout">
+        <div className="home-main">
+          <HeroBanner banners={banners} />
+          <HomeSections
+            featured={featured}
+            announcements={announcements}
+            updates={updates}
+          />
         </div>
-        {featured.length === 0 && <p style={{ color: 'var(--muted)' }}>No featured products yet.</p>}
-      </section>
-      <section style={{ textAlign: 'center', padding: '3rem 0' }}>
-        <Link href="/shop" className="btn btn-primary">Browse All Products</Link>
-      </section>
-    </div>
+        <AdSidebar ads={ads} />
+      </div>
+    </>
   );
 }

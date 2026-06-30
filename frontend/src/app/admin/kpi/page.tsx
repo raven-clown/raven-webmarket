@@ -1,12 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_URL } from '@/lib/api';
-
-function getToken() {
-  const match = document.cookie.match(/raven_token=([^;]+)/);
-  return match ? match[1] : '';
-}
+import { adminFetch } from '@/lib/adminApi';
 
 export default function AdminKPIPage() {
   const [revenue, setRevenue] = useState<{ period: string; amount: number }[]>([]);
@@ -15,14 +10,15 @@ export default function AdminKPIPage() {
   const [period, setPeriod] = useState('daily');
 
   useEffect(() => {
-    const token = getToken();
-    const headers = { Authorization: `Bearer ${token}` };
-    fetch(`${API_URL}/api/v1/admin/kpi/revenue?period=${period}`, { headers })
-      .then((r) => r.json()).then(setRevenue);
-    fetch(`${API_URL}/api/v1/admin/kpi/frequency`, { headers })
-      .then((r) => r.json()).then(setFrequency);
-    fetch(`${API_URL}/api/v1/admin/kpi/top-spenders`, { headers })
-      .then((r) => r.json()).then(setSpenders);
+    Promise.all([
+      adminFetch<{ period: string; amount: number }[]>(`/api/v1/admin/kpi/revenue?period=${period}`),
+      adminFetch<{ method: string; count: number }[]>('/api/v1/admin/kpi/frequency'),
+      adminFetch<{ discord_id: string; display_name: string; total_amount: number; topup_count: number }[]>('/api/v1/admin/kpi/top-spenders'),
+    ]).then(([rev, freq, top]) => {
+      setRevenue(rev);
+      setFrequency(freq);
+      setSpenders(top);
+    });
   }, [period]);
 
   return (

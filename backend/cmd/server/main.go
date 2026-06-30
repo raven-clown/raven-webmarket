@@ -13,10 +13,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/raven-clown/raven-webmarket/backend/internal/activity"
 	"github.com/raven-clown/raven-webmarket/backend/internal/admin"
 	"github.com/raven-clown/raven-webmarket/backend/internal/auth"
 	"github.com/raven-clown/raven-webmarket/backend/internal/cart"
 	"github.com/raven-clown/raven-webmarket/backend/internal/catalog"
+	"github.com/raven-clown/raven-webmarket/backend/internal/cms"
 	"github.com/raven-clown/raven-webmarket/backend/internal/config"
 	"github.com/raven-clown/raven-webmarket/backend/internal/database"
 	"github.com/raven-clown/raven-webmarket/backend/internal/delivery"
@@ -51,25 +53,39 @@ func main() {
 		log.Fatalf("redis: %v", err)
 	}
 	defer redis.Close()
+	mongoStore, err := database.ConnectMongo(cfg)
+	if err != nil {
+		log.Printf("mongodb warning: %v", err)
+	} else if mongoStore != nil {
+		defer mongoStore.Close(context.Background())
+		if err := database.EnsureMongoIndexes(context.Background(), mongoStore); err != nil {
+			log.Printf("mongodb indexes warning: %v", err)
+		}
+		log.Printf("mongodb connected: %s", cfg.MongoDBName)
+	}
 	store, err := storage.New(cfg)
 	if err != nil {
 		log.Printf("storage warning: %v", err)
 		store, _ = storage.New(cfg)
 	}
+	activityLog := activity.New(db)
 	deliverySvc := delivery.New(cfg, db)
 	deliverFn := func(ctx context.Context, payload models.DeliveryPayload) error {
 		return deliverySvc.Deliver(ctx, payload)
 	}
 	authSvc := auth.New(cfg, db, esxDB, redis)
 	catalogSvc := catalog.New(db, redis)
+	cmsSvc := cms.New(db, redis)
 	cartSvc := cart.New(redis)
-	orderSvc := order.New(db, redis, deliverFn)
+	orderSvc := order.New(db, redis, activityLog, deliverFn)
 	milestoneSvc := milestone.New(db, redis, deliverFn)
 	redeemSvc := redeem.New(db, redis, deliverFn)
-	paymentSvc := payment.New(cfg, db, redis, store)
+	paymentSvc := payment.New(cfg, db, redis, store, activityLog)
 	adminSvc := admin.New(db)
-	api := handlers.NewAPI(cfg, authSvc, catalogSvc, cartSvc, orderSvc, milestoneSvc, redeemSvc, paymentSvc, deliverySvc, adminSvc)
+	admin.StartMonthlyResetScheduler(adminSvc)
+	api := handlers.NewAPI(cfg, redis, authSvc, catalogSvc, cmsSvc, cartSvc, orderSvc, milestoneSvc, redeemSvc, paymentSvc, deliverySvc, adminSvc)
 	r := chi.NewRouter()
+	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.Metrics)
 	r.Use(middleware.JSONContentType)
 	r.Use(cors.Handler(cors.Options{
@@ -82,8 +98,9 @@ func main() {
 	r.Use(middleware.RateLimit(cfg, redis))
 	r.Get("/metrics", metrics.Handler().ServeHTTP)
 	authMw := middleware.AuthRequired(cfg)
-	adminMw := middleware.AdminRequired
-	api.Routes(r, authMw, adminMw)
+	adminAuthMw := middleware.AdminAuthRequired(cfg)
+	devAdminMw := middleware.RoleRequired("dev_admin")
+	api.Routes(r, authMw, adminAuthMw, devAdminMw)
 	addr := fmt.Sprintf("%s:%s", cfg.APIHost, cfg.APIPort)
 	srv := &http.Server{Addr: addr, Handler: r, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second}
 	go func() {

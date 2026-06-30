@@ -24,13 +24,23 @@ type UserClaims struct {
 	jwt.RegisteredClaims
 }
 
+type AdminClaims struct {
+	Username    string   `json:"username"`
+	Role        string   `json:"role"`
+	AccountID   uint     `json:"account_id"`
+	DiscordID   string   `json:"discord_id,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	jwt.RegisteredClaims
+}
+
+func (a AdminClaims) DiscordIDValue() string {
+	return a.DiscordID
+}
+
 func RateLimit(cfg *config.Config, rs *redisstore.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
-			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-				ip = strings.Split(fwd, ",")[0]
-			}
+			ip := ClientIP(cfg, r)
 			key := "rl:" + ip + ":" + r.URL.Path
 			ctx := r.Context()
 			count, err := rs.RateLimit.Incr(ctx, key).Result()
@@ -99,6 +109,63 @@ func AdminRequired(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func AdminAuthRequired(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tokenStr := extractAdminToken(r)
+			if tokenStr == "" {
+				http.Error(w, `{"error":"admin unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			claims := &AdminClaims{}
+			token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+				return []byte(cfg.JWTSecret), nil
+			})
+			if err != nil || !token.Valid || claims.Subject != "admin" {
+				http.Error(w, `{"error":"invalid admin token"}`, http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), AdminContextKey, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func RoleRequired(minRole string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims := GetAdmin(r)
+			if claims == nil {
+				http.Error(w, `{"error":"admin unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if minRole == "dev_admin" && claims.Role != "dev_admin" {
+				http.Error(w, `{"error":"dev admin required"}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+const AdminContextKey contextKey = "admin"
+
+func GetAdmin(r *http.Request) *AdminClaims {
+	claims, _ := r.Context().Value(AdminContextKey).(*AdminClaims)
+	return claims
+}
+
+func extractAdminToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	if c, err := r.Cookie("raven_admin_token"); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 func GetUser(r *http.Request) *UserClaims {

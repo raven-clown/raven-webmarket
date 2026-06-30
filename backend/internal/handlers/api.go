@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -11,6 +15,7 @@ import (
 	"github.com/raven-clown/raven-webmarket/backend/internal/auth"
 	"github.com/raven-clown/raven-webmarket/backend/internal/cart"
 	"github.com/raven-clown/raven-webmarket/backend/internal/catalog"
+	"github.com/raven-clown/raven-webmarket/backend/internal/cms"
 	"github.com/raven-clown/raven-webmarket/backend/internal/config"
 	"github.com/raven-clown/raven-webmarket/backend/internal/delivery"
 	"github.com/raven-clown/raven-webmarket/backend/internal/middleware"
@@ -20,12 +25,15 @@ import (
 	"github.com/raven-clown/raven-webmarket/backend/internal/payment"
 	"github.com/raven-clown/raven-webmarket/backend/internal/redeem"
 	"github.com/raven-clown/raven-webmarket/backend/internal/response"
+	redisstore "github.com/raven-clown/raven-webmarket/backend/internal/redisstore"
 )
 
 type API struct {
 	cfg       *config.Config
+	redis     *redisstore.Store
 	auth      *auth.Service
 	catalog   *catalog.Service
+	cms       *cms.Service
 	cart      *cart.Service
 	order     *order.Service
 	milestone *milestone.Service
@@ -37,8 +45,10 @@ type API struct {
 
 func NewAPI(
 	cfg *config.Config,
+	redis *redisstore.Store,
 	authSvc *auth.Service,
 	catalogSvc *catalog.Service,
+	cmsSvc *cms.Service,
 	cartSvc *cart.Service,
 	orderSvc *order.Service,
 	milestoneSvc *milestone.Service,
@@ -48,18 +58,22 @@ func NewAPI(
 	adminSvc *admin.Service,
 ) *API {
 	return &API{
-		cfg: cfg, auth: authSvc, catalog: catalogSvc, cart: cartSvc,
+		cfg: cfg, redis: redis, auth: authSvc, catalog: catalogSvc, cms: cmsSvc, cart: cartSvc,
 		order: orderSvc, milestone: milestoneSvc, redeem: redeemSvc,
 		payment: paymentSvc, delivery: deliverySvc, admin: adminSvc,
 	}
 }
 
-func (a *API) Routes(r chi.Router, authMw, adminMw func(http.Handler) http.Handler) {
+func (a *API) Routes(r chi.Router, authMw, adminAuthMw func(http.Handler) http.Handler, devAdminMw func(http.Handler) http.Handler) {
 	r.Get("/healthz", a.Health)
 	r.Get("/api/v1/catalog/banners", a.GetBanners)
 	r.Get("/api/v1/catalog/categories", a.GetCategories)
 	r.Get("/api/v1/catalog/products", a.GetProducts)
 	r.Get("/api/v1/catalog/packages", a.GetPackages)
+	r.Get("/api/v1/catalog/promotions", a.GetPromotions)
+	r.Get("/api/v1/content/posts", a.GetSitePosts)
+	r.Get("/api/v1/forum/threads", a.GetForumThreads)
+	r.Get("/api/v1/forum/threads/{id}", a.GetForumThread)
 	r.Get("/api/v1/auth/discord", a.DiscordLogin)
 	r.Get("/api/v1/auth/callback", a.DiscordCallback)
 	r.Post("/api/v1/payments/webhook", a.PaymentWebhook)
@@ -82,23 +96,11 @@ func (a *API) Routes(r chi.Router, authMw, adminMw func(http.Handler) http.Handl
 		pr.Post("/api/v1/payments/create", a.CreatePayment)
 		pr.Post("/api/v1/payments/slip", a.UploadSlip)
 		pr.Get("/api/v1/payments/history", a.PaymentHistory)
+		pr.Post("/api/v1/forum/threads", a.CreateForumThread)
+		pr.Post("/api/v1/forum/threads/{id}/replies", a.CreateForumReply)
 	})
 
-	r.Group(func(ar chi.Router) {
-		ar.Use(authMw)
-		ar.Use(adminMw)
-		ar.Get("/api/v1/admin/users/search", a.AdminSearchUser)
-		ar.Get("/api/v1/admin/users/{discordID}/topups", a.AdminUserTopups)
-		ar.Post("/api/v1/admin/reset-accumulations", a.AdminReset)
-		ar.Get("/api/v1/admin/audit-logs", a.AdminAuditLogs)
-		ar.Get("/api/v1/admin/kpi/revenue", a.AdminKPIRevenue)
-		ar.Get("/api/v1/admin/kpi/peak", a.AdminKPIPeak)
-		ar.Get("/api/v1/admin/kpi/frequency", a.AdminKPIFrequency)
-		ar.Get("/api/v1/admin/kpi/top-spenders", a.AdminTopSpenders)
-		ar.Post("/api/v1/admin/products", a.AdminUpsertProduct)
-		ar.Post("/api/v1/admin/banners", a.AdminUpsertBanner)
-		ar.Post("/api/v1/admin/cache/invalidate", a.AdminInvalidateCache)
-	})
+	a.RegisterAdminRoutes(r, adminAuthMw, devAdminMw)
 }
 
 func (a *API) Health(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +140,15 @@ func (a *API) GetProducts(w http.ResponseWriter, r *http.Request) {
 func (a *API) GetPackages(w http.ResponseWriter, r *http.Request) {
 	featured := r.URL.Query().Get("featured") == "1"
 	items, err := a.catalog.GetPackages(r.Context(), featured)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, items)
+}
+
+func (a *API) GetPromotions(w http.ResponseWriter, r *http.Request) {
+	items, err := a.catalog.GetActivePromotions(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -364,9 +375,42 @@ func (a *API) PaymentHistory(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, items)
 }
 
+func (a *API) requireFiveMAuth(w http.ResponseWriter, r *http.Request) bool {
+	if a.cfg.FiveMAPIKey != "" {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "Bearer "+a.cfg.FiveMAPIKey {
+			return true
+		}
+	}
+	if a.cfg.FiveMWebhookSecret != "" && r.Header.Get("X-Webhook-Secret") == a.cfg.FiveMWebhookSecret {
+		return true
+	}
+	response.Error(w, http.StatusUnauthorized, "unauthorized")
+	return false
+}
+
 func (a *API) PaymentWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "body too large")
+		return
+	}
+	if a.cfg.Env == "production" && a.cfg.PaymentWebhookSecret == "" {
+		response.Error(w, http.StatusServiceUnavailable, "webhook not configured")
+		return
+	}
+	if a.cfg.PaymentWebhookSecret != "" {
+		sig := r.Header.Get("X-Webhook-Signature")
+		mac := hmac.New(sha256.New, []byte(a.cfg.PaymentWebhookSecret))
+		mac.Write(body)
+		expected := hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(sig), []byte(expected)) {
+			response.Error(w, http.StatusUnauthorized, "invalid signature")
+			return
+		}
+	}
 	var payload payment.WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid body")
 		return
 	}
@@ -382,6 +426,9 @@ func (a *API) PaymentWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) GameMailbox(w http.ResponseWriter, r *http.Request) {
+	if !a.requireFiveMAuth(w, r) {
+		return
+	}
 	identifier := chi.URLParam(r, "identifier")
 	items, err := a.delivery.PendingMailbox(r.Context(), identifier)
 	if err != nil {
@@ -392,6 +439,9 @@ func (a *API) GameMailbox(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) ClaimMailbox(w http.ResponseWriter, r *http.Request) {
+	if !a.requireFiveMAuth(w, r) {
+		return
+	}
 	idStr := chi.URLParam(r, "id")
 	id, _ := strconv.ParseUint(idStr, 10, 64)
 	var req struct {
@@ -426,16 +476,19 @@ func (a *API) AdminUserTopups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) AdminReset(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
-	if err := a.admin.ResetAccumulations(r.Context(), user.DiscordID, r.RemoteAddr); err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+	actor := middleware.GetAdmin(r)
+	includeRedeem := r.URL.Query().Get("include_redeem") == "1"
+	if err := a.admin.ResetAccumulations(r.Context(), *actor, a.clientIP(r), includeRedeem); err != nil {
+		response.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"status": "reset"})
 }
 
 func (a *API) AdminAuditLogs(w http.ResponseWriter, r *http.Request) {
-	logs, err := a.admin.AuditLogs(r.Context(), 100)
+	category := r.URL.Query().Get("category")
+	action := r.URL.Query().Get("action")
+	logs, err := a.admin.AuditLogsFiltered(r.Context(), category, action, 200)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -484,31 +537,15 @@ func (a *API) AdminTopSpenders(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusOK, items)
 }
-
-func (a *API) AdminUpsertProduct(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
-	var data map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		response.Error(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if err := a.admin.UpsertProduct(r.Context(), user.DiscordID, r.RemoteAddr, data); err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	a.catalog.InvalidateCache(r.Context())
-	response.JSON(w, http.StatusOK, map[string]string{"status": "saved"})
-}
-
 func (a *API) AdminUpsertBanner(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
+	actor := middleware.GetAdmin(r)
 	var data map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := a.admin.UpsertBanner(r.Context(), user.DiscordID, r.RemoteAddr, data); err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+	if err := a.admin.UpsertBanner(r.Context(), *actor, a.clientIP(r), data); err != nil {
+		response.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
 	a.catalog.InvalidateCache(r.Context())
@@ -516,6 +553,8 @@ func (a *API) AdminUpsertBanner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) AdminInvalidateCache(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetAdmin(r)
 	a.catalog.InvalidateCache(r.Context())
+	a.admin.LogDetailed(r.Context(), actor.DiscordIDValue(), actor.Username, actor.Role, "system", "invalidate_cache", "cache", "catalog", "{}", a.clientIP(r))
 	response.JSON(w, http.StatusOK, map[string]string{"status": "invalidated"})
 }

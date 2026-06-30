@@ -23,8 +23,10 @@ function getToken() {
 
 export default function ShopPageInner() {
   const searchParams = useSearchParams();
+  const [shopTab, setShopTab] = useState<'products' | 'packages'>('products');
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [packages, setPackages] = useState<Product[]>([]);
   const [categoryId, setCategoryId] = useState(0);
   const [search, setSearch] = useState('');
   const [loginNotice, setLoginNotice] = useState('');
@@ -41,6 +43,7 @@ export default function ShopPageInner() {
 
   useEffect(() => {
     fetch(`${API_URL}/api/v1/catalog/categories`).then((r) => r.json()).then(setCategories);
+    fetch(`${API_URL}/api/v1/catalog/packages`).then((r) => r.json()).then(setPackages);
   }, []);
 
   useEffect(() => {
@@ -68,9 +71,32 @@ export default function ShopPageInner() {
     alert('Added to cart');
   };
 
+  const addPackageToCart = async (product: Product) => {
+    const token = getToken();
+    if (!token) {
+      window.location.href = `${API_URL}/api/v1/auth/discord`;
+      return;
+    }
+    const price = product.sale_price > 0 ? product.sale_price : product.regular_price;
+    await fetch(`${API_URL}/api/v1/cart/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      credentials: 'include',
+      body: JSON.stringify({ type: 'package', id: product.id, name: product.name, quantity: 1, price }),
+    });
+    alert('Pack added to cart');
+  };
+
+  const list = shopTab === 'products' ? products : packages;
+  const onAdd = shopTab === 'products' ? addToCart : addPackageToCart;
+
   return (
     <div className="container">
-      <h1 className="section-title">All Products</h1>
+      <h1 className="section-title">Shop</h1>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <button type="button" className={shopTab === 'products' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'} onClick={() => setShopTab('products')}>Products</button>
+        <button type="button" className={shopTab === 'packages' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'} onClick={() => setShopTab('packages')}>Packs & Bundles</button>
+      </div>
       {loginNotice && (
         <div
           className="card"
@@ -84,6 +110,7 @@ export default function ShopPageInner() {
           {loginNotice}
         </div>
       )}
+      {shopTab === 'products' && (
       <div className="filters">
         <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}>
           <option value={0}>All Categories</option>
@@ -93,9 +120,10 @@ export default function ShopPageInner() {
         </select>
         <input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
+      )}
       <div className="grid-products">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} onAdd={() => addToCart(p)} />
+        {list.map((p) => (
+          <ProductCard key={p.id} product={p} onAdd={() => onAdd(p)} />
         ))}
       </div>
     </div>

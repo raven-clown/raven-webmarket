@@ -54,6 +54,15 @@ type Config struct {
 	RedeemPointsPerBaht float64
 	RateLimitRequests   int
 	RateLimitWindowSec  int
+	TrustedProxies      []string
+	TrustCloudflare     bool
+	MongoEnabled        bool
+	MongoURI            string
+	MongoHost           string
+	MongoPort           string
+	MongoUser           string
+	MongoPassword       string
+	MongoDBName         string
 }
 
 func Load() *Config {
@@ -105,6 +114,15 @@ func Load() *Config {
 		RedeemPointsPerBaht: getEnvFloat("REDEEM_POINTS_PER_BAHT", 1),
 		RateLimitRequests:   getEnvInt("RATE_LIMIT_REQUESTS", 100),
 		RateLimitWindowSec:  getEnvInt("RATE_LIMIT_WINDOW_SEC", 60),
+		TrustedProxies:      splitCSV(getEnv("TRUSTED_PROXIES", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16")),
+		TrustCloudflare:     getEnv("TRUST_CLOUDFLARE", "false") == "true",
+		MongoEnabled:        getEnv("MONGO_ENABLED", "false") == "true",
+		MongoURI:            getEnv("MONGO_URI", ""),
+		MongoHost:           getEnv("MONGO_HOST", "127.0.0.1"),
+		MongoPort:           getEnv("MONGO_PORT", "27017"),
+		MongoUser:           getEnv("MONGO_USER", ""),
+		MongoPassword:       getEnv("MONGO_PASSWORD", ""),
+		MongoDBName:         getEnv("MONGO_DB_NAME", "raven_webmarket"),
 	}
 }
 

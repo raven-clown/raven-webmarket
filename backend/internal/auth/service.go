@@ -76,7 +76,7 @@ func (s *Service) HandleCallback(ctx context.Context, code string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	isAdmin := s.isAdmin(user.ID)
+	isAdmin := false
 	jwtToken, err := s.issueJWT(user.ID, row.Identifier, isAdmin)
 	if err != nil {
 		return "", err

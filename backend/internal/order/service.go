@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/raven-clown/raven-webmarket/backend/internal/activity"
 	"github.com/raven-clown/raven-webmarket/backend/internal/lock"
 	"github.com/raven-clown/raven-webmarket/backend/internal/models"
 	redisstore "github.com/raven-clown/raven-webmarket/backend/internal/redisstore"
@@ -16,13 +17,14 @@ import (
 type Service struct {
 	db    *sql.DB
 	redis *redisstore.Store
+	log   *activity.Logger
 	deliver DeliveryFunc
 }
 
 type DeliveryFunc func(ctx context.Context, payload models.DeliveryPayload) error
 
-func New(db *sql.DB, redis *redisstore.Store, deliver DeliveryFunc) *Service {
-	return &Service{db: db, redis: redis, deliver: deliver}
+func New(db *sql.DB, redis *redisstore.Store, log *activity.Logger, deliver DeliveryFunc) *Service {
+	return &Service{db: db, redis: redis, log: log, deliver: deliver}
 }
 
 func (s *Service) Checkout(ctx context.Context, discordID, identifier string, items []models.CartItem) (string, error) {
@@ -91,6 +93,11 @@ func (s *Service) Checkout(ctx context.Context, discordID, identifier string, it
 		}
 		_, _ = s.db.ExecContext(ctx, `
 			UPDATE shop_orders SET status = 'completed', delivery_status = 'delivered' WHERE order_ref = ?`, orderRef)
+		if s.log != nil {
+			s.log.Write(ctx, "purchase", "user", discordID, "checkout_completed", "order", orderRef, "", map[string]interface{}{
+				"identifier": identifier, "total": total, "items": len(items),
+			})
+		}
 		return nil
 	})
 	return orderRef, err
